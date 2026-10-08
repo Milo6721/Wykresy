@@ -123,6 +123,7 @@ body.dragging{overscroll-behavior:none}
   background:var(--glass-solid);-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);
   box-shadow:0 8px 28px rgba(0,0,0,.2),inset 0 1px 0 var(--glass-in),0 0 0 .5px var(--sep)}
 .tip.on{opacity:1;transform:none}
+.valedit{position:absolute;z-index:10;width:116px;height:40px;transform:translate(-50%,-50%);text-align:center;font-weight:700;font-size:16px;border:0;outline:none;border-radius:999px;background:var(--glass-solid);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);box-shadow:0 10px 30px rgba(0,0,0,.25),0 0 0 3px rgba(10,132,255,.5)}
 .hint{margin:4px 6px 0;color:var(--muted);font-size:12.5px;text-align:center}
 
 /* panel boczny */
@@ -275,7 +276,7 @@ body.pres .chart-card .seg{display:none}
         <svg id="chart" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Wykres"></svg>
         <div class="tip" id="tip"></div>
       </div>
-      <p class="hint">Przeciągaj słupki, punkty i uchwyty, aby zmieniać dane. Kliknij legendę, aby ukryć serię.</p>
+      <p class="hint">Przeciągaj słupki, punkty i uchwyty, aby zmieniać dane. Dotknij dwa razy, aby wpisać dokładną wartość. Kliknij legendę, aby ukryć serię.</p>
     </section>
 
     <aside>
@@ -320,6 +321,7 @@ body.pres .chart-card .seg{display:none}
             <label class="cell"><span>Wartości na wykresie</span><input type="checkbox" class="ios" data-opt="values"></label>
             <label class="cell"><span>Legenda</span><input type="checkbox" class="ios" data-opt="legend"></label>
             <label class="cell" data-for="bar,hbar,stacked,line,area,combo"><span>Siatka</span><input type="checkbox" class="ios" data-opt="grid"></label>
+            <label class="cell" data-for="pie,donut"><span>Stała suma przy przeciąganiu</span><input type="checkbox" class="ios" data-opt="keepTotal"></label>
             <label class="cell" data-for="line,area,combo"><span>Gładkie linie</span><input type="checkbox" class="ios" data-opt="smooth"></label>
             <label class="cell"><span>Gradienty</span><input type="checkbox" class="ios" data-opt="gradient"></label>
           </div></div>
@@ -430,7 +432,7 @@ const PRESETS={
  'Ranking':{type:'hbar',title:'Najczęściej odwiedzane kraje',subtitle:'mln turystów',labels:['Francja','Hiszpania','USA','Włochy','Turcja','Meksyk'],series:[{name:'2025',values:[102,94,79,65,55,42]}],opts:{avg:true}},
  'Opady':{type:'polar',title:'Opady w roku',subtitle:'milimetry na miesiąc',labels:MONTHS,series:[{name:'mm',values:[28,24,32,38,62,78,85,68,50,38,36,34]}]}
 };
-const defOpts=()=>({values:true,legend:true,grid:true,smooth:true,gradient:true,radius:7,lineW:3.2,pointR:5.5,hole:58,xTitle:'',yTitle:'',prefix:'',suffix:'',decimals:-1,yMin:'',yMax:'',target:'',trend:false,avg:false,pct:false,bg:'auto',scale:2,palette:'Apple'});
+const defOpts=()=>({values:true,legend:true,grid:true,smooth:true,gradient:true,radius:7,lineW:3.2,pointR:5.5,hole:58,xTitle:'',yTitle:'',prefix:'',suffix:'',decimals:-1,yMin:'',yMax:'',target:'',trend:false,avg:false,pct:false,keepTotal:false,bg:'auto',scale:2,palette:'Apple'});
 let S=null, W=800, H=520, ph=300, lastSc=null, frozen=null, drag=null, geo={}, rot=false, forced=null, tab='data';
 const P={l:60,r:28,t:76,b:80};
 const usesCat=()=>['pie','donut','polar'].includes(S.type);
@@ -707,9 +709,9 @@ function rPie(T){
       out+=`<g class="fade" style="--k:${k}" pointer-events="none"><text x="${lp[0]}" y="${lp[1]-2}" text-anchor="${anc}" font-size="12" fill="${T.muted}">${esc(cut(d.l,16))}</text>
         <text x="${lp[0]}" y="${lp[1]+14}" text-anchor="${anc}" font-size="13" font-weight="700" fill="${T.text}">${fmt(d.v)} · ${nf.format(+pct.toFixed(1))}%</text></g>`;
     }
-    if(k<a.length-1){
-      const hp=pt(donut?(R+ri)/2:R*.92,d.a1),n=a[k+1];
-      hs+=`<g class="hnd" data-drag="pie" data-s="0" data-i="${k}" data-key="h${k}" data-tip="${esc(`${d.l}: ${fmt(d.v)} ⇄ ${n.l}: ${fmt(n.v)}`)}">
+    if(a.length>1){
+      const last=k===a.length-1,hp=pt(donut?(R+ri)/2:R*.92,last?mid:d.a1);
+      hs+=`<g class="hnd" data-drag="${last?'pieL':'pie'}" data-s="0" data-i="${k}" data-key="h${k}" data-tip="${esc(`${d.l}: ${fmt(d.v)} (${nf.format(+pct.toFixed(1))}%)`)}">
         <circle cx="${hp[0]}" cy="${hp[1]}" r="${HIT()+3}" fill="transparent"/><circle cx="${hp[0]}" cy="${hp[1]}" r="${HIT()>20?12:9}" fill="#fff" stroke="${d.c}" stroke-width="3" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"/></g>`;
     }
   });
@@ -789,21 +791,30 @@ function applyDrag(p){
     setVal(s,i,sc.min+(P.t+ph-p.y)/ph*(sc.max-sc.min)-base,0,sc.max-base,sc.step);
   }else if(kind==='rad')setVal(s,i,Math.hypot(p.x-geo.cx,p.y-geo.cy)/geo.R*sc.max,0,sc.max,sc.step);
   else if(kind==='pol')setVal(0,i,(Math.hypot(p.x-geo.cx,p.y-geo.cy)/geo.R)**2*sc.max,0,sc.max,sc.step);
-  else if(kind==='pie'){
-    const a=drag.pie,A=a[i],B=a[i+1];if(!A||!B)return;
-    const T2=A.v+B.v,span=(A.sw+B.sw)||1e-9,TAU=2*Math.PI;
-    let rel=((Math.atan2(p.y-geo.cy,p.x-geo.cx)-A.a0)%TAU+TAU)%TAU;
-    if(rel>span)rel=rel>span+(TAU-span)/2?0:span;
-    const snap=10**Math.floor(Math.log10(Math.max(drag.total,1e-9)/200));
-    const v=clamp(Math.round(rel/span*T2/snap)*snap,0,T2);
-    S.series[0].values[A.i]=+v.toFixed(8);S.series[0].values[B.i]=+(T2-v).toFixed(8);
+  else if(kind==='pie'||kind==='pieL'){
+    const a=drag.pie,d=a[i];if(!d)return;
+    const TAU=2*Math.PI,snap=10**Math.floor(Math.log10(Math.max(drag.total,1e-9)/200));
+    let th=((Math.atan2(p.y-geo.cy,p.x-geo.cx)+Math.PI/2)%TAU+TAU)%TAU/TAU,v;
+    if(S.opts.keepTotal&&kind==='pie'){
+      const A=d,B=a[i+1];if(!B)return;
+      const T2=A.v+B.v,span=(A.sw+B.sw)||1e-9;
+      let rel=((Math.atan2(p.y-geo.cy,p.x-geo.cx)-A.a0)%TAU+TAU)%TAU;
+      if(rel>span)rel=rel>span+(TAU-span)/2?0:span;
+      v=clamp(Math.round(rel/span*T2/snap)*snap,0,T2);
+      S.series[0].values[A.i]=+v.toFixed(8);S.series[0].values[B.i]=+(T2-v).toFixed(8);return;
+    }
+    let before=0,after=0;a.forEach((x,j)=>{if(j<i)before+=x.v;else if(j>i)after+=x.v});
+    if(kind==='pie'){th=clamp(th,.001,.995);v=th*after/(1-th)-before}
+    else{th=clamp(th,.505,.999);v=before*(1-th)/(th-.5)}
+    S.series[0].values[d.i]=+(Math.max(0,Math.round(v/snap)*snap)).toFixed(8);
   }
 }
 svg.addEventListener('pointerdown',e=>{
   const el=e.target.closest('[data-drag]');if(!el)return;
   e.preventDefault();
   drag={kind:el.dataset.drag,s:+el.dataset.s,i:+el.dataset.i,key:el.dataset.key,touch:e.pointerType==='touch'};
-  if(drag.kind==='pie'){const pv=pieVis();drag.pie=pv.a;drag.total=pv.total}else frozen=lastSc;
+  if(drag.kind==='pie'||drag.kind==='pieL'){const pv=pieVis();drag.pie=pv.a;drag.total=pv.total}else frozen=lastSc;
+  drag.x0=e.clientX;drag.y0=e.clientY;drag.moved=false;
   try{svg.setPointerCapture(e.pointerId)}catch(_){}
   document.body.classList.add('dragging');
   if(navigator.vibrate)navigator.vibrate(8);
@@ -811,8 +822,9 @@ svg.addEventListener('pointerdown',e=>{
 });
 svg.addEventListener('pointermove',e=>{
   if(drag){
+    if(!drag.moved){if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<5)return;drag.moved=true}
     applyDrag(toSvg(e));render();syncTable();
-    if(drag.kind==='pie'){const pv=pieVis();drag.pie=pv.a;drag.total=pv.total}
+    if(drag.kind==='pie'||drag.kind==='pieL'){const pv=pieVis();drag.pie=pv.a;drag.total=pv.total}
     const el=svg.querySelector(`[data-key="${drag.key}"]`);showTip(e,el?el.dataset.tip:'');return;
   }
   const t=e.target.closest('[data-tip]');t?showTip(e,t.dataset.tip):hideTip();
@@ -820,9 +832,32 @@ svg.addEventListener('pointermove',e=>{
 // iOS Safari: blokada przewijania strony w trakcie przeciągania
 svg.addEventListener('touchmove',e=>{if(drag)e.preventDefault()},{passive:false});
 svg.addEventListener('touchstart',e=>{if(e.target.closest&&e.target.closest('[data-drag]'))e.preventDefault()},{passive:false});
-function endDrag(){
-  if(!drag)return;drag=null;frozen=null;document.body.classList.remove('dragging');
-  hideTip();render();commit();
+let lastTap=null;
+function endDrag(e){
+  if(!drag)return;const d=drag;drag=null;frozen=null;document.body.classList.remove('dragging');
+  hideTip();render();
+  if(d.moved){commit();lastTap=null;return}
+  const now=Date.now();
+  if(lastTap&&lastTap.key===d.key&&now-lastTap.t<450){lastTap=null;openEditor(d)}else lastTap={key:d.key,t:now};
+}
+function openEditor(d){
+  let s=d.s,idx=d.i;
+  if(d.kind==='pie'||d.kind==='pieL'){const a=pieVis().a,sl=d.kind==='pieL'?a[a.length-1]:a[d.i];if(!sl)return;idx=sl.i;s=0}
+  const el=svg.querySelector(`[data-key="${d.key}"]`);if(!el)return;
+  const r=el.getBoundingClientRect(),sr=stage.getBoundingClientRect();
+  $$('.valedit').forEach(x=>x.remove());
+  const inp=document.createElement('input');inp.className='valedit';inp.type='text';inp.inputMode='decimal';
+  inp.value=String(S.series[s].values[idx]).replace('.',',');
+  inp.style.left=clamp(r.left+r.width/2-sr.left,60,sr.width-60)+'px';inp.style.top=clamp(r.top+r.height/2-sr.top-34,20,sr.height-20)+'px';
+  let done=false;
+  const fin=ok=>{
+    if(done)return;done=true;
+    const v=parseFloat(inp.value.replace(/\s/g,'').replace(',','.'));inp.remove();
+    if(ok&&isFinite(v)){S.series[s].values[idx]=usesCat()?Math.max(0,v):v;syncTable();render();commit()}
+  };
+  inp.addEventListener('keydown',ev=>{if(ev.key==='Enter')fin(true);if(ev.key==='Escape')fin(false);ev.stopPropagation()});
+  inp.addEventListener('blur',()=>fin(true));
+  stage.appendChild(inp);inp.focus();inp.select();
 }
 svg.addEventListener('pointerup',endDrag);svg.addEventListener('pointercancel',endDrag);
 svg.addEventListener('lostpointercapture',endDrag);
